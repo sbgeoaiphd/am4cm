@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "am4cm"
+version = "0.1.0"
+description = "Attention Masks 4 Cloud Masking"
+authors = ["Samuel Barrett"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+torch = "^2.4.1"
+numpy = "^2.1.2"
+geopandas = "^1.0.1"
+
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.3"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
