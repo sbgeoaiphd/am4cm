@@ -19,3 +19,25 @@ This project will use a the "LTAE" model by Garnot (https://arxiv.org/abs/2007.0
 
 ## Dataset and Task
 The model will be trained on the PASTIS (https://arxiv.org/abs/2107.07933 and https://github.com/VSainteuf/pastis-benchmark) Crop Segementation dataset. This dataset contains Sentinel-2 imagery and crop type labels for a region in France. The model will be trained to predict crop types from the imte timeseries. Note: the benchmark was built for development of a spatio-temporal model (U-TAE) but we'll just be using a temporal pixel-wise model.
+
+## Other Objectives
+This project will also serve as practice and demonstration of my skills in:
+* automated testing (pytest)
+* environment management (poetry)
+* version control (git)
+* pytorch:
+    * data loading
+    * data transformations
+    * model training
+    * model inference
+
+# Environment Setup
+## Using real data for testing
+To run the tests using real PASTIS .npy files and metadata, you'll need to set an environment variable that points to the folder containing the real data.
+
+1. Set the PASTIS_PATH environment variable:
+This variable should point to the base PASTIS directory where the metadata.geojson and DATA_S2 directory are located. For example:
+`export PASTIS_PATH="/mnt/c/data/PASTIS-R/PASTIS-R"`
+
+2. Run the tests: Once the environment variable is set, you can run the tests with pytest:
+`pytest --cov=src tests/`
