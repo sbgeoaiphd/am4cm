@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import DataLoader
 import geopandas as gpd
 import numpy as np
-from ..src.data.dataset import SITSDataset, MiniBatchSITSDataset
+from ..src.data.dataset import SITSDataset, MiniBatchSITSDataset, padded_collate_fn
 
 @pytest.fixture
 def pastis_data_path():
@@ -124,83 +124,109 @@ def mock_sits_dataset(pastis_data_path):
     """
     return SITSDataset(pastis_data_path, fold_id=1)
 
-def test_minibatch_loading(mock_sits_dataset):
+def test_single_sample_loading(mock_sits_dataset):
     """
-    Test that multiple patches are loaded at once, concatenated, and shuffled within each group.
+    Ensure that MiniBatchSITSDataset loads one sample at a time from the buffer.
     """
-    mini_batch_dataset = MiniBatchSITSDataset(mock_sits_dataset, patches_per_group=2)
+    dataset = MiniBatchSITSDataset(mock_sits_dataset, patches_per_group=2)
     
-    # Get the first mini-batch (group of 2 patches)
-    X, y = mini_batch_dataset[0]
+    # Call __getitem__ to load one sample
+    first_sample_X, first_sample_y = dataset[0]
     
-    # Ensure that two patches worth of pixels are concatenated
-    assert X.shape[0] == mock_sits_dataset[0][0].shape[0] + mock_sits_dataset[1][0].shape[0]
-    assert y.shape[0] == mock_sits_dataset[0][1].shape[0] + mock_sits_dataset[1][1].shape[0]
+    # Ensure only one sample is returned
+    assert first_sample_X.ndim == 2, "Expected a single sample (1D), but got a batch"
+    assert first_sample_y.ndim == 0, "Expected a single label, but got a batch"
     
-    # Ensure X and y are converted to tensors
-    assert isinstance(X, torch.Tensor)
-    assert isinstance(y, torch.Tensor)
+    # Ensure buffer index increments after each call
+    second_sample_X, second_sample_y = dataset[1]
+    assert dataset.buffer_index == 2, "Buffer index did not increment after loading a sample"
+    
+    # Ensure that two consecutive samples are different (since we are shuffling)
+    assert not torch.equal(first_sample_X, second_sample_X), "Two consecutive samples are identical"
 
-def test_pixel_shuffling(mock_sits_dataset):
+def test_buffer_replenishment(mock_sits_dataset):
     """
-    Test that pixels are shuffled across patches within the group.
-    Non trivial because of the time sampling
+    Ensure that the buffer replenishes when exhausted and moves to the next group of patches.
     """
-    mini_batch_dataset = MiniBatchSITSDataset(mock_sits_dataset, patches_per_group=2)
+    dataset = MiniBatchSITSDataset(mock_sits_dataset, patches_per_group=2)
     
-    # Get the first mini-batch (group of 2 patches)
-    X, y = mini_batch_dataset[0]
+    # Simulate consuming the entire buffer
+    while dataset.buffer_index < len(dataset.pixel_buffer):
+        _ = dataset[dataset.buffer_index]
     
-    # Get the indices of the patches that were selected for this mini-batch
-    selected_indices = mini_batch_dataset.indices[:2]  # Since we're testing the first mini-batch
+    # After consuming the buffer, it should reload the next group
+    current_group_index = dataset.group_index
+    _ = dataset[0]  # This should trigger buffer replenishment
+    assert dataset.group_index == current_group_index + 1, "Group index did not increment"
+    assert dataset.buffer_index == 1, "Buffer index was not reset after replenishment"
 
-    # Get the original patches and determine which has the shortest time dimension
-    patch_X_1, _ = mock_sits_dataset[selected_indices[0]]
-    patch_X_2, _ = mock_sits_dataset[selected_indices[1]]
-
-    # find which is shortest
-    time_dim_1 = patch_X_1.shape[1]
-    time_dim_2 = patch_X_2.shape[1]
-
-    # If 1 is shortest, and shuffling DIDN'T happen, then the 1st half of mini_batch_dataset X should be the first patch
-    if time_dim_1 < time_dim_2:
-        assert not torch.allclose(X[:patch_X_1.shape[0]], torch.tensor(patch_X_1))
-    # If 2 is shortest, and shuffling DIDN'T happen, then the 1st half of mini_batch_dataset X should be the second patch
-    else:
-        assert not torch.allclose(X[patch_X_2.shape[0]:], torch.tensor(patch_X_2))
-
-def test_epoch_reshuffling(mock_sits_dataset):
+def test_epoch_end_shuffling(mock_sits_dataset):
     """
-    Test that patch indices are reshuffled at the start of each epoch.
+    Ensure that patch indices are reshuffled after each epoch.
     """
-    mini_batch_dataset = MiniBatchSITSDataset(mock_sits_dataset, patches_per_group=2)
+    dataset = MiniBatchSITSDataset(mock_sits_dataset, patches_per_group=2)
+    
+    # Store initial indices for comparison
+    initial_indices = dataset.indices.copy()
+    
+    # Call on_epoch_end to trigger reshuffling
+    dataset.on_epoch_end()
+    
+    # Check that the indices are different
+    assert not np.array_equal(initial_indices, dataset.indices), "Patch indices were not reshuffled"
+    
+    # Ensure the buffer is reset and the group index starts over
+    assert dataset.group_index == 1, "Group index did not reset after epoch end"
+    assert dataset.buffer_index == 0, "Buffer index did not reset after epoch end"
 
-    # Get the patch indices after the first epoch
-    initial_indices = mini_batch_dataset.indices.copy()
+def test_dataloader_integration(mock_sits_dataset):
+    """
+    Ensure that DataLoader works with MiniBatchSITSDataset and handles batches correctly.
+    """
+    dataset = MiniBatchSITSDataset(mock_sits_dataset, patches_per_group=2)
     
-    # Simulate a new epoch and reshuffle
-    mini_batch_dataset.on_epoch_end()
-    reshuffled_indices = mini_batch_dataset.indices
+    # Create a DataLoader
+    dataloader = DataLoader(
+        dataset,
+        batch_size=32,
+        shuffle=False,
+        num_workers=0,
+        collate_fn=padded_collate_fn,
+        drop_last=True
+    )
     
-    # Ensure that the indices have been reshuffled
-    assert not np.array_equal(initial_indices, reshuffled_indices)
+    for batch_X, batch_y in dataloader:
+        # Ensure the batch size is correct
+        assert batch_X.shape[0] == 32, "Batch size is incorrect"
+        assert batch_y.shape[0] == 32, "Batch size is incorrect for labels"
+        
+        # Ensure individual samples are in the correct shape
+        assert batch_X.ndim == 3, "Expected 2D tensor (batch_size, features)"
+        assert batch_y.ndim == 1, "Expected 1D tensor for labels"
+        
+        # Break after one batch to avoid processing the whole dataset
+        break
 
-
-### STATUS - need new minibatchsitsdataset class which properly handles batches and provides single samples to be compatible iwth data loader
-#### BUT we could do batching ourselves - what does DataLoader provide in the case we're thinking ourselves about shuffling and batches?
-# def test_dataloader_with_minibatch(mock_sits_dataset):
-#     """
-#     Test that DataLoader works correctly with MiniBatchSITSDataset.
-#     """
-#     mini_batch_dataset = MiniBatchSITSDataset(mock_sits_dataset, patches_per_group=2)
+def test_incomplete_batch_handling(mock_sits_dataset):
+    """
+    Ensure that incomplete batches in the buffer are correctly dropped or handled by the DataLoader.
+    """
+    dataset = MiniBatchSITSDataset(mock_sits_dataset, patches_per_group=2)
     
-#     # Create a DataLoader for batching
-#     dataloader = DataLoader(mini_batch_dataset, batch_size=32, shuffle=False, num_workers=0)
+    # Simulate the buffer almost being exhausted (e.g., one sample left)
+    dataset.buffer_index = len(dataset.pixel_buffer) - 1
     
-#     for batch_X, batch_y in dataloader:
-#         # Ensure batch size is correct
-#         assert batch_X.shape[0] == 32
-#         assert batch_y.shape[0] == 32
-#         # don't know time dim, but check band dim is correct and in final dim
-#         assert batch_X.shape[2] == 11
-#         break  # Only test one batch
+    # Create a DataLoader and ensure incomplete batches are dropped
+    dataloader = DataLoader(
+        dataset,
+        batch_size=32,
+        shuffle=False,
+        num_workers=0,
+        collate_fn=padded_collate_fn,
+        drop_last=True
+    )
+    
+    for batch_X, batch_y in dataloader:
+        # Ensure no incomplete batches are processed (should have 32 samples)
+        assert batch_X.shape[0] == 32, "Incomplete batch was not dropped"
+        break
