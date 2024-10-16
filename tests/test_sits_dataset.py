@@ -1,8 +1,10 @@
 import os
 import pytest
+import torch
+from torch.utils.data import DataLoader
 import geopandas as gpd
 import numpy as np
-from ..src.data.dataset import SITSDataset
+from ..src.data.dataset import SITSDataset, MiniBatchSITSDataset
 
 @pytest.fixture
 def pastis_data_path():
@@ -112,4 +114,93 @@ def test_getitem_dataset(pastis_data_path):
     # except in the doy band, where everything is > 1 and int-like (but stored as float)
     assert np.all(x[:, :, 1:] <= 2.5)
     assert np.all(x[:, :, 0] > 1)
+
+
+### Test the MiniBatch loader
+@pytest.fixture
+def mock_sits_dataset(pastis_data_path):
+    """
+    Dataset for testing purposes.
+    """
+    return SITSDataset(pastis_data_path, fold_id=1)
+
+def test_minibatch_loading(mock_sits_dataset):
+    """
+    Test that multiple patches are loaded at once, concatenated, and shuffled within each group.
+    """
+    mini_batch_dataset = MiniBatchSITSDataset(mock_sits_dataset, patches_per_group=2)
     
+    # Get the first mini-batch (group of 2 patches)
+    X, y = mini_batch_dataset[0]
+    
+    # Ensure that two patches worth of pixels are concatenated
+    assert X.shape[0] == mock_sits_dataset[0][0].shape[0] + mock_sits_dataset[1][0].shape[0]
+    assert y.shape[0] == mock_sits_dataset[0][1].shape[0] + mock_sits_dataset[1][1].shape[0]
+    
+    # Ensure X and y are converted to tensors
+    assert isinstance(X, torch.Tensor)
+    assert isinstance(y, torch.Tensor)
+
+def test_pixel_shuffling(mock_sits_dataset):
+    """
+    Test that pixels are shuffled across patches within the group.
+    Non trivial because of the time sampling
+    """
+    mini_batch_dataset = MiniBatchSITSDataset(mock_sits_dataset, patches_per_group=2)
+    
+    # Get the first mini-batch (group of 2 patches)
+    X, y = mini_batch_dataset[0]
+    
+    # Get the indices of the patches that were selected for this mini-batch
+    selected_indices = mini_batch_dataset.indices[:2]  # Since we're testing the first mini-batch
+
+    # Get the original patches and determine which has the shortest time dimension
+    patch_X_1, _ = mock_sits_dataset[selected_indices[0]]
+    patch_X_2, _ = mock_sits_dataset[selected_indices[1]]
+
+    # find which is shortest
+    time_dim_1 = patch_X_1.shape[1]
+    time_dim_2 = patch_X_2.shape[1]
+
+    # If 1 is shortest, and shuffling DIDN'T happen, then the 1st half of mini_batch_dataset X should be the first patch
+    if time_dim_1 < time_dim_2:
+        assert not torch.allclose(X[:patch_X_1.shape[0]], torch.tensor(patch_X_1))
+    # If 2 is shortest, and shuffling DIDN'T happen, then the 1st half of mini_batch_dataset X should be the second patch
+    else:
+        assert not torch.allclose(X[patch_X_2.shape[0]:], torch.tensor(patch_X_2))
+
+def test_epoch_reshuffling(mock_sits_dataset):
+    """
+    Test that patch indices are reshuffled at the start of each epoch.
+    """
+    mini_batch_dataset = MiniBatchSITSDataset(mock_sits_dataset, patches_per_group=2)
+
+    # Get the patch indices after the first epoch
+    initial_indices = mini_batch_dataset.indices.copy()
+    
+    # Simulate a new epoch and reshuffle
+    mini_batch_dataset.on_epoch_end()
+    reshuffled_indices = mini_batch_dataset.indices
+    
+    # Ensure that the indices have been reshuffled
+    assert not np.array_equal(initial_indices, reshuffled_indices)
+
+
+### STATUS - need new minibatchsitsdataset class which properly handles batches and provides single samples to be compatible iwth data loader
+#### BUT we could do batching ourselves - what does DataLoader provide in the case we're thinking ourselves about shuffling and batches?
+# def test_dataloader_with_minibatch(mock_sits_dataset):
+#     """
+#     Test that DataLoader works correctly with MiniBatchSITSDataset.
+#     """
+#     mini_batch_dataset = MiniBatchSITSDataset(mock_sits_dataset, patches_per_group=2)
+    
+#     # Create a DataLoader for batching
+#     dataloader = DataLoader(mini_batch_dataset, batch_size=32, shuffle=False, num_workers=0)
+    
+#     for batch_X, batch_y in dataloader:
+#         # Ensure batch size is correct
+#         assert batch_X.shape[0] == 32
+#         assert batch_y.shape[0] == 32
+#         # don't know time dim, but check band dim is correct and in final dim
+#         assert batch_X.shape[2] == 11
+#         break  # Only test one batch
