@@ -5,6 +5,7 @@ import geopandas as gpd
 import numpy as np
 from datetime import datetime
 import json
+from torch.nn.utils.rnn import pad_sequence
 
 class SITSDataset(Dataset):
     def __init__(self, pastis_path, fold_id=None):
@@ -135,7 +136,7 @@ class SITSDataset(Dataset):
 
         # cast to float32
         x = x.astype(np.float32)
-        
+
         return x
 
     # method to flatten a loaded patch
@@ -158,3 +159,113 @@ class SITSDataset(Dataset):
         x_flat = np.moveaxis(x_flat, 2, 0)
 
         return x_flat, y_flat
+    
+class MiniBatchSITSDataset(Dataset):
+    def __init__(self, dataset, patches_per_group=4, shuffle=True):
+        self.dataset = dataset
+        self.patches_per_group = patches_per_group
+        self.shuffle = shuffle
+
+        self.indices = np.arange(len(self.dataset))
+        self.group_index = 0  # To keep track of which group we're on
+        self.pixel_buffer = None  # Buffer to hold shuffled pixels
+        self.label_buffer = None  # Buffer to hold corresponding labels
+        self.buffer_index = 0
+
+        self.on_epoch_end()  # Initialize the indices and load the first group
+
+    def on_epoch_end(self):
+        """Reshuffle patch indices and reset the group index at the start of each epoch."""
+        self.group_index = 0
+        if self.shuffle:
+            np.random.shuffle(self.indices)
+        self._load_next_group()
+
+    def __len__(self):
+        """Return an estimate of the total number of samples."""
+        # Note: This is an approximation since the actual number may vary due to varying patch sizes
+        total_pixels = sum([patch[0].shape[0] * patch[0].shape[1] for patch in self.dataset])
+        return total_pixels
+
+    def _sample_time_dim(self, X, target_time_dim):
+        """Randomly sample time steps to match the target time dimension."""
+        time_dim = X.shape[1]
+        if time_dim > target_time_dim:
+            time_indices = np.random.choice(time_dim, target_time_dim, replace=False)
+            X = X[:, time_indices, :]
+        return X
+
+    def _load_next_group(self):
+        """Load the next group of patches and shuffle pixels."""
+        if self.group_index * self.patches_per_group >= len(self.indices):
+            # All groups have been processed
+            self.pixel_buffer = None
+            self.label_buffer = None
+            return
+
+        group_indices = self.indices[
+            self.group_index * self.patches_per_group:
+            (self.group_index + 1) * self.patches_per_group
+        ]
+
+        patches = []
+        time_dims = []
+
+        # Load patches and determine the shortest time dimension
+        for idx in group_indices:
+            X, y = self.dataset[idx]
+            time_dims.append(X.shape[1])
+            patches.append((X, y))
+
+        target_time_dim = min(time_dims)
+
+        # Adjust time dimensions and flatten
+        X_list = []
+        y_list = []
+        for X, y in patches:
+            X = self._sample_time_dim(X, target_time_dim)
+            X_list.append(X)
+            y_list.append(y)
+
+        # Concatenate and shuffle
+        X_all = np.concatenate(X_list, axis=0)
+        y_all = np.concatenate(y_list, axis=0)
+        permutation = np.random.permutation(X_all.shape[0])
+        self.pixel_buffer = torch.tensor(X_all[permutation]).float()
+        self.label_buffer = torch.tensor(y_all[permutation]).long()
+        self.buffer_index = 0
+
+        self.group_index += 1
+
+    def __getitem__(self, idx):
+        """Return a single sample from the buffer."""
+        if self.pixel_buffer is None or self.buffer_index >= len(self.pixel_buffer):
+            # Buffer exhausted, load next group
+            self._load_next_group()
+            if self.pixel_buffer is None:
+                # No more data
+                raise IndexError("End of dataset")
+
+        X = self.pixel_buffer[self.buffer_index]
+        y = self.label_buffer[self.buffer_index]
+        self.buffer_index += 1
+        return X, y
+    
+def padded_collate_fn(batch):
+    """
+    Custom collate function that pads the sequences in the time dimension
+    to match the longest sequence in the batch.
+    
+    batch: List of tuples (X, y), where X is the data sample and y is the label.
+    """
+    # Separate the batch into X (data) and y (labels)
+    batch_X = [item[0] for item in batch]
+    batch_y = [item[1] for item in batch]
+
+    # Pad the sequences along the time dimension (dimension 1)
+    batch_X_padded = pad_sequence(batch_X, batch_first=True)
+
+    # Stack the labels (no need to pad as labels should all have the same shape)
+    batch_y_stacked = torch.stack(batch_y, dim=0)
+
+    return batch_X_padded, batch_y_stacked
