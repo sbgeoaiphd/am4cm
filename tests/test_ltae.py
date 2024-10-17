@@ -8,7 +8,7 @@ def test_ltae_model_with_decoder():
     """
     batch_size = 8
     seq_len = 24
-    in_channels = 128  # Number of input features (excluding positions)
+    in_channels = 10  # Number of input features (excluding positions)
     n_classes = 20  # Number of output classes
 
     # Create random input tensor, with the first "band" being the positions
