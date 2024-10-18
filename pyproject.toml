@@ -11,10 +11,15 @@ python = "^3.10"
 torch = "^2.4.1"
 numpy = "^2.1.2"
 geopandas = "^1.0.1"
+tqdm = "^4.66.5"
+matplotlib = "^3.9.2"
+scikit-learn = "^1.5.2"
 
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.3"
+jupyter = "^1.1.1"
+ipykernel = "^6.29.5"
 
 [build-system]
 requires = ["poetry-core"]

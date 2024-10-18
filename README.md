@@ -31,6 +31,13 @@ This project will also serve as practice and demonstration of my skills in:
     * model training
     * model inference
 
+## Not included
+To limit the scope of work and focus on the key objectives, this project will not include:
+* hyperparameter tuning
+* experiment tracking
+* training tracking
+
+
 # Environment Setup
 ## Using real data for testing
 To run the tests using real PASTIS .npy files and metadata, you'll need to set an environment variable that points to the folder containing the real data.
@@ -41,3 +48,38 @@ This variable should point to the base PASTIS directory where the metadata.geojs
 
 2. Run the tests: Once the environment variable is set, you can run the tests with pytest:
 `pytest --cov=src tests/`
+
+
+# Results
+## Crop Classification
+The main focus of this project is to investigate the attention masks learned by the model. However, as the supervised task is crop type classification, lets see how the model did.
+
+Note, the model was trained on only one fold combination of PASTIS (1-3), did not undergo hyper parameter tuning or any iteration on the training process to improve performance. These results represent the "first attempt" without further tuning. However, the model did converge during training.
+
+### Results
+#### Sample crop classification
+![Sample crop classification](/evals/sample_crop_classification.png)]
+
+#### Key metrics 
+(See evals/crop_classification_metrics.csv for full results)
+
+Overall accuracy: 70%
+
+Major crop F1 scores:
+* Soft Winter Wheat: 81%
+* Corn: 86%
+* Winter Barley: 71%
+* Winter Rapeseed: 81%
+* Meadow: 63%
+
+#### Confusion Matrix
+![Confusion Matrix](/evals/TEST_best_model_ltae_confusion_matrix_true.png)
+
+### Conclusion
+These results are good baseline performance for crop classification in this kind of situation, though they are not cutting edge. The model could likely be improved with hyperparameter tuning. Furthermore, if looking at pixel-wise accuracy for semantic segmentation, spatial operations (e.g. U-TAE) are necessary to reach SotA performance. Alternatively, in some settings field level results are used based on majority pixel classification scores per field. Given that such post-processing removes field boundary misclassifications and in-field noisy predictions, the resulting field-level performance is often significantly higher.
+
+## Attention Masks as Cloud Masks
+See the notebook 'notebooks/ltae_inference.ipynb' for full results and conclusions
+
+### Main Conclusion:
+The model shows the ability, via attention weights, to focus on (green vegetation, bare soil) or ignore (clouds, cloud shadows) particular pixel types at particular points in time. However, the behaviour is complex and time-dependent and doesn't lend itself to a simple thresholding approach for cloud masking. Given the model's ability to attend to particular pixel types, and its ability to mostly ignore cloudy pixels via the attention weights, it is likely this kind of modelling approach (attention based architecture, time series data) would be highly adept at cloud masking if provided with supervised labels for the task. Furthermore, because of the distinct spatial patterns of clouds, any high performance cloud detection model to be used in general applications should consider using spatial operations (in addition to temporal operations) to detect clouds.

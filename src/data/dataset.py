@@ -8,7 +8,7 @@ import json
 from torch.nn.utils.rnn import pad_sequence
 
 class SITSDataset(Dataset):
-    def __init__(self, pastis_path, fold_id=None):
+    def __init__(self, pastis_path, fold_id=None, patch_frac=1, pixel_frac=1):
         """
         Initialize the SITSDataset by loading metadata and filtering .npy file paths based on fold ID.
 
@@ -16,25 +16,38 @@ class SITSDataset(Dataset):
         ----------
         pastis_path : str
             Path to the PASTIS dataset directory where metadata.geojson is located file.
-        fold_id : int or None, optional
-            If provided, filter the dataset to only include files that match this fold ID.
+        fold_id : int or list[int] or None, optional
+            If provided, filter the dataset to only include files that match this fold ID or list of fold IDs.
             If None, all files are included.
-            fold_id is an integer between 1 and 5, inclusive.
+            fold_id is an integer or a list of integers between 1 and 5, inclusive.
+        patch_frac : float, optional
+            Fraction of the patches in dataset to use (in % of patches). Default is 1 (use the entire dataset).
+        pixel_frac : float, optional
+            Fraction of the pixels in each patch to sample (in % of pixels). Default is 1 (use all pixels
         """
 
         # Load metadata
         self.pastis_path = pastis_path
         metadata_path = os.path.join(pastis_path, 'metadata.geojson')
         self.metadata = gpd.read_file(metadata_path)
-        self.metadata = self.filter_patch_ids(fold_id)
+        self.metadata = self.filter_patch_ids(fold_id, patch_frac)
+        self.pixel_frac = pixel_frac
         
         self.patch_ids = list(self.metadata.ID_PATCH)
         self.init_patch_paths()
-        
+
+    def pixel_length(self):
+        """
+        Return total number of pixels in dataset.
+        """
+        # its the number of patches * number of pixels in each patch
+        # patches are 128x128
+        # we also sample with pixel_frac
+        return int(len(self.patch_ids) * 128 * 128 * self.pixel_frac) - 1    
 
     def __len__(self):
         """
-        Return the number of files.
+        Return n patches in dataset
         """
         return len(self.patch_ids)
 
@@ -48,22 +61,29 @@ class SITSDataset(Dataset):
             Index of the patch to load.
         """
         x, y = self.load_patch(idx)
-        x, y = self.flatten_patch(x, y)
+        x, y = self.flatten_patch(x, y, self.pixel_frac)
         return x, y
     
-    def filter_patch_ids(self, fold_id):
+    def filter_patch_ids(self, fold_id, patch_frac):
         """
         Filter the patch IDs based on fold ID.
         
         Parameters
         ----------
-        fold_id : int or None
-            If provided, filter the dataset to only include files that match this fold ID.
+        fold_id : int or list[int] or None
+            If provided, filter the dataset to only include files that match this fold ID or list of fold IDs.
             If None, all files are included.
-            fold_id is an integer between 1 and 5, inclusive.
+            fold_id is an integer or a list of integers between 1 and 5, inclusive.
+        patch_frac : float
+            Fraction of the patches in dataset to use (in % of patches).
         """
         if fold_id is not None:
-            self.metadata = self.metadata[self.metadata.Fold == fold_id]
+            if isinstance(fold_id, int):
+                fold_id = [fold_id]
+            self.metadata = self.metadata[self.metadata.Fold.isin(fold_id)]
+            if patch_frac < 1:
+                self.metadata = self.metadata.sample(frac=patch_frac, random_state=42)
+
         return self.metadata
         
 
@@ -140,7 +160,7 @@ class SITSDataset(Dataset):
         return x
 
     # method to flatten a loaded patch
-    def flatten_patch(self, x, y):
+    def flatten_patch(self, x, y, pixel_frac):
         """
         Flatten the features and labels for a single patch.
         
@@ -150,6 +170,8 @@ class SITSDataset(Dataset):
             Features for the patch.
         y : np.ndarray
             Labels for the patch.
+        pixel_frac : float
+            Fraction of the pixels in the patch to sample (in % of pixels).
         """
         # Flatten the features and labels
         x_flat = x.reshape(x.shape[0], x.shape[1], -1)
@@ -157,6 +179,14 @@ class SITSDataset(Dataset):
 
         # put sample dim first (for x), so (time, bands, samples) -> (samples, time, bands)
         x_flat = np.moveaxis(x_flat, 2, 0)
+
+        # Sample a fraction of the pixels
+        if pixel_frac < 1:
+            n_pixels = x_flat.shape[0]
+            n_sampled_pixels = int(n_pixels * pixel_frac)
+            indices = np.random.choice(n_pixels, n_sampled_pixels, replace=False)
+            x_flat = x_flat[indices]
+            y_flat = y_flat[indices]
 
         return x_flat, y_flat
     
@@ -182,10 +212,8 @@ class MiniBatchSITSDataset(Dataset):
         self._load_next_group()
 
     def __len__(self):
-        """Return an estimate of the total number of samples."""
-        # Note: This is an approximation since the actual number may vary due to varying patch sizes
-        total_pixels = sum([patch[0].shape[0] * patch[0].shape[1] for patch in self.dataset])
-        return total_pixels
+        """ Return total number of samples/pixels in dataset. """
+        return self.dataset.pixel_length()
 
     def _sample_time_dim(self, X, target_time_dim):
         """Randomly sample time steps to match the target time dimension."""
@@ -269,3 +297,6 @@ def padded_collate_fn(batch):
     batch_y_stacked = torch.stack(batch_y, dim=0)
 
     return batch_X_padded, batch_y_stacked
+
+
+

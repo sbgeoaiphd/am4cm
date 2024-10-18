@@ -1,0 +1,26 @@
+                              precision    recall  f1-score   support
+
+                  Background       0.75      0.87      0.80     16495
+                      Meadow       0.67      0.59      0.63      6664
+           Soft winter wheat       0.79      0.83      0.81      4088
+                        Corn       0.85      0.87      0.86      2980
+               Winter barley       0.80      0.64      0.71      1292
+             Winter rapeseed       0.82      0.81      0.81       996
+               Spring barley       0.20      0.32      0.25       176
+                   Sunflower       0.87      0.35      0.50       388
+                   Grapevine       0.64      0.43      0.51       696
+                        Beet       0.84      0.90      0.87       548
+            Winter triticale       0.00      0.00      0.00       104
+          Winter durum wheat       0.38      0.33      0.35       364
+Fruits,  vegetables, flowers       0.49      0.45      0.47       468
+                    Potatoes       0.79      0.39      0.53       304
+           Leguminous fodder       0.17      0.15      0.16       476
+                    Soybeans       0.79      0.24      0.37       180
+                     Orchard       0.23      0.32      0.27       436
+                Mixed cereal       0.40      0.23      0.29       404
+                     Sorghum       0.00      0.00      0.00       248
+                  Void label       0.40      0.23      0.29      3652
+
+                    accuracy                           0.70     40959
+                   macro avg       0.54      0.45      0.47     40959
+                weighted avg       0.69      0.70      0.68     40959
