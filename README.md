@@ -58,7 +58,7 @@ Note, the model was trained on only one fold combination of PASTIS (1-3), did no
 
 ### Results
 #### Sample crop classification
-![Sample crop classification](/evals/sample_crop_classification.png)]
+![Sample crop classification](/evals/sample_classification.png)]
 
 #### Key metrics 
 (See evals/crop_classification_metrics.csv for full results)
@@ -79,7 +79,10 @@ Major crop F1 scores:
 These results are good baseline performance for crop classification in this kind of situation, though they are not cutting edge. The model could likely be improved with hyperparameter tuning. Furthermore, if looking at pixel-wise accuracy for semantic segmentation, spatial operations (e.g. U-TAE) are necessary to reach SotA performance. Alternatively, in some settings field level results are used based on majority pixel classification scores per field. Given that such post-processing removes field boundary misclassifications and in-field noisy predictions, the resulting field-level performance is often significantly higher.
 
 ## Attention Masks as Cloud Masks
-See the notebook 'notebooks/ltae_inference.ipynb' for full results and conclusions
+See the notebook 'notebooks/ltae_inference.ipynb' for full results and conclusions.
+
+Example:
+![Attention Masks](/evals/example_att_map.png)
 
 ### Main Conclusion:
 The model shows the ability, via attention weights, to focus on (green vegetation, bare soil) or ignore (clouds, cloud shadows) particular pixel types at particular points in time. However, the behaviour is complex and time-dependent and doesn't lend itself to a simple thresholding approach for cloud masking. Given the model's ability to attend to particular pixel types, and its ability to mostly ignore cloudy pixels via the attention weights, it is likely this kind of modelling approach (attention based architecture, time series data) would be highly adept at cloud masking if provided with supervised labels for the task. Furthermore, because of the distinct spatial patterns of clouds, any high performance cloud detection model to be used in general applications should consider using spatial operations (in addition to temporal operations) to detect clouds.
