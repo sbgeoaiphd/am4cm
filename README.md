@@ -1,5 +1,5 @@
 # am4cm
-Attention Masks 4 Cloud Masking
+Attention Masks 4 Cloud Masking: 
 Investigating attention masks learned from other tasks repurposed for cloud masking
 
 ## Background
@@ -18,7 +18,7 @@ This project aims to investigate the feasibility of using attention masks learne
 This project will use a the "LTAE" model by Garnot (https://arxiv.org/abs/2007.00586) adapted to function on pixel time series (as in Marc Rußwurm and Marco Körner's work mentioned above). I.e. the model takes a 2d array of observations (time) x bands and produces a single classification per pixel.
 
 ## Dataset and Task
-The model will be trained on the PASTIS (https://arxiv.org/abs/2107.07933 and https://github.com/VSainteuf/pastis-benchmark) Crop Segementation dataset. This dataset contains Sentinel-2 imagery and crop type labels for a region in France. The model will be trained to predict crop types from the imte timeseries. Note: the benchmark was built for development of a spatio-temporal model (U-TAE) but we'll just be using a temporal pixel-wise model.
+The model will be trained on the PASTIS (https://arxiv.org/abs/2107.07933 and https://github.com/VSainteuf/pastis-benchmark) Crop Segementation dataset. This dataset contains Sentinel-2 imagery and crop type labels for a region in France. The model will be trained to predict crop types from the time series data. Note: the benchmark was built for development of a spatio-temporal model (U-TAE) but we'll just be using a temporal pixel-wise model.
 
 ## Other Objectives
 This project will also serve as practice and demonstration of my skills in:
@@ -36,6 +36,7 @@ To limit the scope of work and focus on the key objectives, this project will no
 * hyperparameter tuning
 * experiment tracking
 * training tracking
+* cross validation
 
 
 # Environment Setup
@@ -49,6 +50,13 @@ This variable should point to the base PASTIS directory where the metadata.geojs
 2. Run the tests: Once the environment variable is set, you can run the tests with pytest:
 `pytest --cov=src tests/`
 
+## Training the model
+To train the model, from the root directory run:
+
+`python -m scripts.train_ltae`
+
+The model weights will be saved to the '.checkpoints' directory
+
 
 # Results
 ## Crop Classification
@@ -58,7 +66,7 @@ Note, the model was trained on only one fold combination of PASTIS (1-3), did no
 
 ### Results
 #### Sample crop classification
-![Sample crop classification](/evals/sample_classification.png)]
+![Sample crop classification](/evals/sample_classification.png)
 
 #### Key metrics 
 (See evals/crop_classification_metrics.csv for full results)
@@ -76,7 +84,9 @@ Major crop F1 scores:
 ![Confusion Matrix](/evals/TEST_best_model_ltae_confusion_matrix_true.png)
 
 ### Conclusion
-These results are good baseline performance for crop classification in this kind of situation, though they are not cutting edge. The model could likely be improved with hyperparameter tuning. Furthermore, if looking at pixel-wise accuracy for semantic segmentation, spatial operations (e.g. U-TAE) are necessary to reach SotA performance. Alternatively, in some settings field level results are used based on majority pixel classification scores per field. Given that such post-processing removes field boundary misclassifications and in-field noisy predictions, the resulting field-level performance is often significantly higher.
+These results are good baseline performance for crop classification in this kind of situation, though they are not cutting edge. It is important to highlight that these results were obtained without applying any cloud masking to the data during either training or inference (and the PASTIS dataset does contain cloudy observations). This is in line with previous research showing that transformers can learn to ignore clouds when trained on data with clouds present.
+
+The model could likely be improved with hyperparameter tuning. Furthermore, if looking at pixel-wise accuracy for semantic segmentation, spatial operations (e.g. U-TAE) are necessary to reach SotA performance. Alternatively, in some settings field level results are used based on majority pixel classification scores per field. Given that such post-processing removes field boundary misclassifications and in-field noisy predictions, the resulting field-level performance is often significantly higher.
 
 ## Attention Masks as Cloud Masks
 See the notebook 'notebooks/ltae_inference.ipynb' for full results and conclusions.
